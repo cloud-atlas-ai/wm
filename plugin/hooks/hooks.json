@@ -1,0 +1,15 @@
+{
+  "description": "Working memory context injection hooks",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/compile.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

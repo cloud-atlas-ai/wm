@@ -1,0 +1,5 @@
+/target
+
+# Local state (for development)
+.wm/
+.superego/

@@ -1,0 +1,22 @@
+{
+  "name": "wm",
+  "owner": {
+    "name": "Cloud Atlas AI",
+    "email": "hello@cloudatlas.ai"
+  },
+  "metadata": {
+    "description": "Working Memory plugin marketplace",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "wm",
+      "source": "./plugin",
+      "description": "Working memory - surfaces relevant context based on user intent",
+      "version": "0.1.0",
+      "author": {
+        "name": "Cloud Atlas AI"
+      }
+    }
+  ]
+}
