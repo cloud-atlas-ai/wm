@@ -6,6 +6,7 @@ mod extract;
 mod init;
 mod show;
 mod state;
+mod transcript;
 mod types;
 
 #[derive(Parser)]
@@ -28,9 +29,9 @@ enum Commands {
         #[arg(long)]
         transcript: Option<String>,
 
-        /// Run in background (detach from terminal)
+        /// Claude session ID (for session-scoped extraction)
         #[arg(long)]
-        background: bool,
+        session_id: Option<String>,
     },
 
     /// Compile working set for current state
@@ -57,7 +58,11 @@ enum Commands {
 #[derive(Subcommand)]
 enum HookCommands {
     /// Called by post-submit hook
-    Compile,
+    Compile {
+        /// Claude session ID (required for session-scoped output)
+        #[arg(long)]
+        session_id: String,
+    },
 
     /// Called by sg after clearing (or manually)
     Extract,
@@ -75,12 +80,12 @@ fn main() -> ExitCode {
         Commands::Init => init::run(),
         Commands::Extract {
             transcript,
-            background,
-        } => extract::run(transcript, background),
+            session_id,
+        } => extract::run(transcript, session_id),
         Commands::Compile { intent } => compile::run(intent),
         Commands::Show { what } => show::run(&what),
         Commands::Hook { command } => match command {
-            HookCommands::Compile => compile::run_hook(),
+            HookCommands::Compile { session_id } => compile::run_hook(&session_id),
             HookCommands::Extract => extract::run_hook(),
         },
     };

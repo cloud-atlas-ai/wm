@@ -20,28 +20,43 @@ pub fn run(intent: Option<String>) -> Result<(), String> {
         return Ok(());
     }
 
-    let working_set = compile_with_llm(&state, intent.as_deref())?;
+    let result = compile_with_llm(&state, intent.as_deref())?;
 
-    state::write_working_set(&working_set)
-        .map_err(|e| format!("Failed to write working set: {}", e))?;
-
-    println!("Compiled working set to .wm/working_set.md");
+    if result.has_relevant {
+        state::write_working_set(&result.content)
+            .map_err(|e| format!("Failed to write working set: {}", e))?;
+        println!("Compiled working set to .wm/working_set.md");
+    } else {
+        println!("No relevant knowledge for this intent.");
+    }
     Ok(())
 }
 
 /// Run from post-submit hook - reads intent from stdin, outputs JSON
 /// Never blocks - returns empty response on any failure
-pub fn run_hook() -> Result<(), String> {
+pub fn run_hook(session_id: &str) -> Result<(), String> {
     if !state::is_initialized() {
         // Silent success if not initialized
         return Ok(());
     }
 
-    let intent = read_hook_intent();
-    let state = std::fs::read_to_string(state::wm_path("state.md")).unwrap_or_default();
+    state::log("compile", "Hook fired");
+
+    let intent = read_hook_input();
+    state::log(
+        "compile",
+        &format!(
+            "Intent: {:?}, Session: {}",
+            intent.as_deref().unwrap_or("(none)").chars().take(50).collect::<String>(),
+            session_id
+        ),
+    );
+
+    let state_content = std::fs::read_to_string(state::wm_path("state.md")).unwrap_or_default();
 
     // If no state, return empty response
-    if state.trim().is_empty() {
+    if state_content.trim().is_empty() {
+        state::log("compile", "No state, returning empty");
         let response = HookResponse {
             additional_context: None,
         };
@@ -50,41 +65,51 @@ pub fn run_hook() -> Result<(), String> {
         return Ok(());
     }
 
+    state::log("compile", &format!("State size: {} bytes", state_content.len()));
+
     // Try LLM call, but don't fail the hook if it errors
-    let working_set = match compile_with_llm(&state, intent.as_deref()) {
-        Ok(ws) => ws,
-        Err(_) => String::new(), // Graceful degradation
+    let compile_result = match compile_with_llm(&state_content, intent.as_deref()) {
+        Ok(result) => {
+            state::log("compile", &format!("LLM returned has_relevant={}, {} bytes",
+                result.has_relevant, result.content.len()));
+            result
+        }
+        Err(e) => {
+            state::log("compile", &format!("LLM error: {}", e));
+            CompileResult { has_relevant: false, content: String::new() }
+        }
     };
 
-    // Write to file for debugging
-    let _ = state::write_working_set(&working_set);
+    // Only write working_set if there's relevant content
+    if compile_result.has_relevant {
+        let _ = state::write_working_set_for_session(session_id, &compile_result.content);
+    }
 
     // Output hook response
     let response = HookResponse {
-        additional_context: if working_set.trim().is_empty() {
-            None
+        additional_context: if compile_result.has_relevant {
+            Some(compile_result.content)
         } else {
-            Some(working_set)
+            None
         },
     };
 
     let json = serde_json::to_string(&response).map_err(|e| e.to_string())?;
+    state::log("compile", "Complete");
     println!("{}", json);
 
     Ok(())
 }
 
 /// Read intent from hook input (stdin contains JSON with prompt field)
-fn read_hook_intent() -> Option<String> {
+fn read_hook_input() -> Option<String> {
     use std::io::{self, Read};
 
     let mut buffer = String::new();
     if io::stdin().read_to_string(&mut buffer).is_ok() && !buffer.trim().is_empty() {
-        // Try to parse as JSON hook input (UserPromptSubmit provides 'prompt' field)
+        // Try to parse as JSON hook input
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&buffer) {
-            if let Some(prompt) = json.get("prompt").and_then(|v| v.as_str()) {
-                return Some(prompt.to_string());
-            }
+            return json.get("prompt").and_then(|v| v.as_str()).map(String::from);
         }
         // Fallback: treat raw input as the intent
         Some(buffer.trim().to_string())
@@ -93,54 +118,73 @@ fn read_hook_intent() -> Option<String> {
     }
 }
 
-/// Use LLM to filter state for relevance to intent
-fn compile_with_llm(state: &str, intent: Option<&str>) -> Result<String, String> {
-    use std::io::Write;
+/// Result of compilation - includes flag for whether relevant knowledge was found
+struct CompileResult {
+    has_relevant: bool,
+    content: String,
+}
 
+/// Use LLM to filter state for relevance to intent
+fn compile_with_llm(state: &str, intent: Option<&str>) -> Result<CompileResult, String> {
     // Prevent recursion
     // SAFETY: Single-threaded, standard pattern for preventing recursive hooks
     unsafe { std::env::set_var("WM_DISABLED", "1") };
 
     let intent_text = intent.unwrap_or("general coding task");
 
-    let system_prompt = r#"You are the working memory for an AI coding assistant.
+    // AIDEV-NOTE: This prompt must FILTER, not ANSWER. Previous version caused
+    // the LLM to synthesize explanations when user prompt looked like a question.
+    // AIDEV-NOTE: Uses text-based markers like sg does - more reliable than JSON.
+    let system_prompt = r#"You are a relevance filter for an AI assistant's working memory.
 
-Working memory holds what's relevant RIGHT NOW for the task at hand—not everything known, just what helps with this specific intent.
+Given accumulated knowledge and the user's current message, SELECT items that are relevant to their task.
 
-Given accumulated knowledge and the user's current intent, surface what's relevant:
-- Decisions that apply to this task
-- Constraints that must be respected
-- Patterns that should be followed
-- Facts the assistant needs to know
+DO NOT:
+- Answer the user's question
+- Synthesize new explanations
+- Add commentary or analysis
+- Reformat or summarize the knowledge
 
-Be concise. Output only the relevant knowledge as markdown.
-If nothing is relevant, output nothing."#;
+ONLY output knowledge items from the accumulated state that apply to the current task.
+Copy relevant sections verbatim or near-verbatim.
+
+RESPONSE FORMAT (text-based, not JSON):
+
+If knowledge is relevant, respond:
+HAS_RELEVANT: YES
+
+<the relevant knowledge items as markdown>
+
+If nothing is relevant, respond:
+HAS_RELEVANT: NO
+
+That's it. Just the marker line, then content (if YES). No JSON, no code fences, no explanation."#;
 
     let message = format!(
         "ACCUMULATED KNOWLEDGE:\n{}\n\nUSER'S CURRENT INTENT:\n{}\n\nRELEVANT KNOWLEDGE:",
         state, intent_text
     );
 
-    let mut child = Command::new("claude")
-        .args(["-p", "--output-format", "json"])
+    // AIDEV-NOTE: Match sg's calling pattern exactly:
+    // - Pass message as argument (not stdin)
+    // - Use --no-session-persistence to prevent session bleed
+    // - stdin(Stdio::null()) explicitly
+    let mut cmd = Command::new("claude");
+    cmd.arg("-p")
+        .arg("--output-format")
+        .arg("json")
+        .arg("--no-session-persistence")
         .arg("--system-prompt")
         .arg(system_prompt)
-        .stdin(Stdio::piped())
+        .arg(&message)
+        .env("SUPEREGO_DISABLED", "1") // Prevent sg → wm → claude → sg loop
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .stdin(Stdio::null());
+
+    let child = cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn claude CLI: {}", e))?;
-
-    // Write message to stdin
-    {
-        let stdin = child
-            .stdin
-            .as_mut()
-            .ok_or("Failed to get stdin handle")?;
-        stdin
-            .write_all(message.as_bytes())
-            .map_err(|e| format!("Failed to write to stdin: {}", e))?;
-    }
 
     let output = child
         .wait_with_output()
@@ -157,18 +201,65 @@ If nothing is relevant, output nothing."#;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Extract result from Claude CLI JSON response
-    extract_result_field(&stdout)
+    // Extract and parse result from Claude CLI JSON response
+    parse_compile_response(&stdout)
 }
 
-/// Extract the "result" field from Claude CLI JSON output
-fn extract_result_field(response: &str) -> Result<String, String> {
+/// Strip markdown prefixes from a line (matches sg's strip_markdown_prefix exactly)
+fn strip_markdown_prefix(line: &str) -> &str {
+    line.trim().trim_start_matches(['#', '>', '*']).trim()
+}
+
+/// Parse HAS_RELEVANT: YES|NO format with lenient matching
+/// AIDEV-NOTE: Same robust pattern as extract.rs and sg - text markers, not JSON.
+fn parse_relevance_response(result_str: &str) -> CompileResult {
+    let lines: Vec<&str> = result_str.lines().collect();
+
+    for (i, line) in lines.iter().enumerate() {
+        let stripped = strip_markdown_prefix(line);
+
+        if let Some(value) = stripped.strip_prefix("HAS_RELEVANT:") {
+            let value = value.trim().to_uppercase();
+            if value == "YES" || value == "TRUE" {
+                // Content is everything after this line
+                let content = lines[i + 1..].join("\n").trim().to_string();
+                return CompileResult {
+                    has_relevant: true,
+                    content,
+                };
+            }
+            // NO or FALSE - nothing relevant
+            return CompileResult {
+                has_relevant: false,
+                content: String::new(),
+            };
+        }
+    }
+
+    // Fallback: no marker found, assume nothing relevant
+    state::log(
+        "compile",
+        "No HAS_RELEVANT marker found in response, treating as no relevant content",
+    );
+    CompileResult {
+        has_relevant: false,
+        content: String::new(),
+    }
+}
+
+/// Parse Claude CLI response and extract the CompileResult
+/// AIDEV-NOTE: Claude CLI wraps response in {"result": "..."}. We extract that string,
+/// then parse using text-based HAS_RELEVANT markers (not JSON).
+fn parse_compile_response(response: &str) -> Result<CompileResult, String> {
+    // First, parse the Claude CLI wrapper
     let cli_response: serde_json::Value = serde_json::from_str(response)
         .map_err(|e| format!("Failed to parse Claude CLI response: {}", e))?;
 
-    cli_response
+    let result_str = cli_response
         .get("result")
         .and_then(|v| v.as_str())
-        .map(String::from)
-        .ok_or_else(|| "Claude CLI response missing 'result' field".to_string())
+        .ok_or_else(|| "Claude CLI response missing 'result' field".to_string())?;
+
+    // Parse using text-based markers (like sg does)
+    Ok(parse_relevance_response(result_str))
 }
