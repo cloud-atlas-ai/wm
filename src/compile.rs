@@ -13,6 +13,12 @@ pub fn run(intent: Option<String>) -> Result<(), String> {
         return Err("Not initialized. Run 'wm init' first.".to_string());
     }
 
+    // Check if compile is paused
+    if !state::is_compile_enabled() {
+        println!("Compile is paused. Use 'wm resume compile' to enable.");
+        return Ok(());
+    }
+
     let state = std::fs::read_to_string(state::wm_path("state.md")).unwrap_or_default();
 
     if state.trim().is_empty() {
@@ -37,6 +43,17 @@ pub fn run(intent: Option<String>) -> Result<(), String> {
 pub fn run_hook(session_id: &str) -> Result<(), String> {
     if !state::is_initialized() {
         // Silent success if not initialized
+        return Ok(());
+    }
+
+    // Check if compile is paused
+    if !state::is_compile_enabled() {
+        state::log("compile", "Paused via config, returning empty");
+        let response = HookResponse {
+            additional_context: None,
+        };
+        let json = serde_json::to_string(&response).map_err(|e| e.to_string())?;
+        println!("{}", json);
         return Ok(());
     }
 

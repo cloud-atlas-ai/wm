@@ -23,6 +23,13 @@ pub fn run(transcript_path: Option<String>, session_id: Option<String>) -> Resul
         return Err("Not initialized. Run 'wm init' first.".to_string());
     }
 
+    // Check if extract is paused
+    if !state::is_extract_enabled() {
+        state::log("extract", "Paused via config, skipping");
+        println!("Extract is paused. Use 'wm resume extract' to enable.");
+        return Ok(());
+    }
+
     let transcript = find_transcript(transcript_path)?;
     let session = session_id.or_else(|| std::env::var("CLAUDE_SESSION_ID").ok());
     extract_from_transcript(&transcript, session.as_deref())
@@ -32,6 +39,12 @@ pub fn run(transcript_path: Option<String>, session_id: Option<String>) -> Resul
 pub fn run_hook() -> Result<(), String> {
     if !state::is_initialized() {
         return Ok(()); // Silent success
+    }
+
+    // Check if extract is paused
+    if !state::is_extract_enabled() {
+        state::log("extract", "Paused via config, skipping");
+        return Ok(());
     }
 
     let transcript = find_transcript(None)?;
