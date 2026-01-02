@@ -96,12 +96,38 @@ wm show state
 # View what context would be injected
 wm show working
 
+# List all sessions
+wm show sessions
+
+# View session-specific working set
+wm show working --session-id <id>
+
 # Manually trigger extraction
 wm extract
 
 # Manually compile for a specific intent
 wm compile --intent "implement authentication"
+
+# Compress state.md (synthesize to higher abstractions)
+wm compress
 ```
+
+### Compressing Knowledge
+
+Over time, `state.md` accumulates knowledge and can grow unwieldy. The `compress` command distills it down by:
+
+- **Merging** related items into broader principles
+- **Abstracting** specific instances into general patterns
+- **Removing** obsolete or superseded knowledge
+- **Preserving** critical constraints and preferences
+
+```bash
+wm compress
+# Compressed: 42 → 18 lines (57% reduction)
+# Backup saved to .wm/state.md.backup
+```
+
+Run periodically when state feels bloated, not after every session.
 
 ### Debugging
 

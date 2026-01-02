@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use std::process::ExitCode;
 
 mod compile;
+mod compress;
 mod extract;
 mod init;
 mod show;
@@ -40,6 +41,9 @@ enum Commands {
         #[arg(long)]
         intent: Option<String>,
     },
+
+    /// Compress state.md by synthesizing to higher-level abstractions
+    Compress,
 
     /// Display state, working set, or sessions
     Show {
@@ -87,6 +91,7 @@ fn main() -> ExitCode {
             session_id,
         } => extract::run(transcript, session_id),
         Commands::Compile { intent } => compile::run(intent),
+        Commands::Compress => compress::run(),
         Commands::Show { what, session_id } => show::run(&what, session_id.as_deref()),
         Commands::Hook { command } => match command {
             HookCommands::Compile { session_id } => compile::run_hook(&session_id),
