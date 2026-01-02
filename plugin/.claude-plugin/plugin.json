@@ -1,6 +1,6 @@
 {
   "name": "wm",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Working memory for AI coding assistants - surfaces relevant context based on intent",
   "author": {
     "name": "Cloud Atlas AI",
