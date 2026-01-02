@@ -1,17 +1,15 @@
-//! Display commands for state, working set, and nodes
+//! Display commands for state and working set
 
 use crate::state;
-use crate::types::{Item, ItemStatus};
 
-/// Run wm show <what>
-pub fn run(what: &str) -> Result<(), String> {
+/// Run wm show <what> [--session-id ID]
+pub fn run(what: &str, session_id: Option<&str>) -> Result<(), String> {
     match what {
         "state" => show_state(),
-        "working" => show_working(),
-        "nodes" => show_nodes(),
-        "conflicts" => show_conflicts(),
+        "working" => show_working(session_id),
+        "sessions" => show_sessions(),
         _ => Err(format!(
-            "Unknown target: {}. Use: state, working, nodes, conflicts",
+            "Unknown target: {}. Use: state, working, sessions",
             what
         )),
     }
@@ -22,183 +20,94 @@ fn show_state() -> Result<(), String> {
         return Err("Not initialized. Run 'wm init' first.".to_string());
     }
 
-    let state = state::read_state().map_err(|e| format!("Failed to read state: {}", e))?;
-
-    println!("# WM State");
-    println!();
-    println!("Project ID: {}", state.project_id);
-    println!("Updated: {}", state.updated_at);
-    println!(
-        "Last extraction: {}",
-        state
-            .checkpoint
-            .last_extraction
-            .map(|t| t.to_string())
-            .unwrap_or_else(|| "never".to_string())
-    );
-    println!();
-
-    if state.items.is_empty() {
-        println!("_No items yet. Run 'wm extract' to populate._");
-    } else {
-        println!("## Items ({})", state.items.len());
-        println!();
-
-        // Group by type
-        let mut by_type: std::collections::HashMap<String, Vec<&Item>> =
-            std::collections::HashMap::new();
-
-        for item in &state.items {
-            if item.status == ItemStatus::Deprecated {
-                continue;
-            }
-            let type_name = format!("{:?}", item.item_type);
-            by_type.entry(type_name).or_default().push(item);
+    let path = state::wm_path("state.md");
+    match std::fs::read_to_string(&path) {
+        Ok(content) if content.trim().is_empty() => {
+            println!("_No knowledge captured yet. Run 'wm extract' after some conversations._");
+            Ok(())
         }
-
-        for (type_name, items) in by_type {
-            println!("### {} ({})", type_name, items.len());
-            for item in items {
-                print_item(item);
-            }
-            println!();
-        }
-    }
-
-    if !state.conflicts.is_empty() {
-        println!("## Conflicts ({})", state.conflicts.len());
-        for conflict in &state.conflicts {
-            println!("- Items: {:?}", conflict.items);
-            println!("  Reason: {}", conflict.reason);
-        }
-    }
-
-    Ok(())
-}
-
-fn show_working() -> Result<(), String> {
-    if !state::is_initialized() {
-        return Err("Not initialized. Run 'wm init' first.".to_string());
-    }
-
-    match state::read_working_set() {
         Ok(content) => {
             println!("{}", content);
             Ok(())
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            println!("_No state.md found. Run 'wm init' first._");
+            Ok(())
+        }
+        Err(e) => Err(format!("Failed to read state.md: {}", e)),
+    }
+}
+
+fn show_working(session_id: Option<&str>) -> Result<(), String> {
+    if !state::is_initialized() {
+        return Err("Not initialized. Run 'wm init' first.".to_string());
+    }
+
+    // Read from session-specific path if provided, otherwise global
+    let content = match session_id {
+        Some(id) => {
+            let path = state::session_dir(id).join("working_set.md");
+            std::fs::read_to_string(&path)
+        }
+        None => state::read_working_set(),
+    };
+
+    match content {
+        Ok(c) if c.trim().is_empty() => {
             println!("_No working set compiled yet. Run 'wm compile' first._");
+            Ok(())
+        }
+        Ok(c) => {
+            println!("{}", c);
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            match session_id {
+                Some(id) => println!("_No working set for session {}. Run 'wm hook compile --session-id {}' first._", id, id),
+                None => println!("_No working set compiled yet. Run 'wm compile' first._"),
+            }
             Ok(())
         }
         Err(e) => Err(format!("Failed to read working set: {}", e)),
     }
 }
 
-fn show_nodes() -> Result<(), String> {
+fn show_sessions() -> Result<(), String> {
     if !state::is_initialized() {
         return Err("Not initialized. Run 'wm init' first.".to_string());
     }
 
-    let nodes = state::read_nodes().map_err(|e| format!("Failed to read nodes: {}", e))?;
-
-    println!("# Vocabulary Nodes");
-    println!();
-
-    if !nodes.domains.is_empty() {
-        println!("## Domains");
-        for (key, node) in &nodes.domains {
-            println!("- domain:{} → {}", key, node.label);
-        }
-        println!();
-    }
-
-    if !nodes.layers.is_empty() {
-        println!("## Layers");
-        for (key, node) in &nodes.layers {
-            println!("- layer:{} → {}", key, node.label);
-        }
-        println!();
-    }
-
-    if !nodes.libraries.is_empty() {
-        println!("## Libraries");
-        for (key, node) in &nodes.libraries {
-            println!("- library:{} → {}", key, node.label);
-        }
-        println!();
-    }
-
-    if !nodes.tools.is_empty() {
-        println!("## Tools");
-        for (key, node) in &nodes.tools {
-            println!("- tool:{} → {}", key, node.label);
-        }
-        println!();
-    }
-
-    Ok(())
-}
-
-fn show_conflicts() -> Result<(), String> {
-    if !state::is_initialized() {
-        return Err("Not initialized. Run 'wm init' first.".to_string());
-    }
-
-    let state = state::read_state().map_err(|e| format!("Failed to read state: {}", e))?;
-
-    if state.conflicts.is_empty() {
-        println!("No conflicts.");
+    let sessions_dir = state::wm_path("sessions");
+    if !sessions_dir.exists() {
+        println!("_No sessions yet._");
         return Ok(());
     }
 
-    println!("# Conflicts ({})", state.conflicts.len());
-    println!();
+    let entries = std::fs::read_dir(&sessions_dir)
+        .map_err(|e| format!("Failed to read sessions directory: {}", e))?;
 
-    for (i, conflict) in state.conflicts.iter().enumerate() {
-        println!("## Conflict {}", i + 1);
-        println!("Items: {:?}", conflict.items);
-        println!("Reason: {}", conflict.reason);
-        println!("Surfaced: {}", conflict.surfaced_at);
-        println!();
+    let mut sessions: Vec<_> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+
+    if sessions.is_empty() {
+        println!("_No sessions yet._");
+        return Ok(());
     }
+
+    sessions.sort();
+    println!("# Sessions ({})", sessions.len());
+    println!();
+    for session in sessions {
+        let working_set = state::session_dir(&session).join("working_set.md");
+        let has_working = working_set.exists();
+        let marker = if has_working { "●" } else { "○" };
+        println!("{} {}", marker, session);
+    }
+    println!();
+    println!("● = has working_set.md, ○ = no working set");
 
     Ok(())
-}
-
-fn print_item(item: &Item) {
-    let status_indicator = match item.status {
-        ItemStatus::Confirmed => "✓",
-        ItemStatus::Grounded => "◉",
-        ItemStatus::Repeated => "↻",
-        ItemStatus::Inferred => "◌",
-        ItemStatus::Tentative => "?",
-        ItemStatus::Deprecated => "✗",
-    };
-
-    let pinned = if item.pinned { " [pinned]" } else { "" };
-
-    println!(
-        "{} {} ({}){} [strength: {:.2}]",
-        status_indicator,
-        item.text,
-        item.id,
-        pinned,
-        item.strength
-    );
-
-    if let Some(ref rationale) = item.rationale {
-        println!("  Rationale: {}", rationale);
-    }
-
-    if !item.edges.applies_to.is_empty() {
-        println!("  Applies to: {}", item.edges.applies_to.join(", "));
-    }
-
-    if !item.edges.uses.is_empty() {
-        println!("  Uses: {}", item.edges.uses.join(", "));
-    }
-
-    if !item.edges.grounded_in.is_empty() {
-        println!("  Grounded in: {}", item.edges.grounded_in.join(", "));
-    }
 }

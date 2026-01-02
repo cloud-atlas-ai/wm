@@ -41,11 +41,15 @@ enum Commands {
         intent: Option<String>,
     },
 
-    /// Display state, working set, or nodes
+    /// Display state, working set, or sessions
     Show {
-        /// What to show: state, working, nodes, conflicts
+        /// What to show: state, working, sessions
         #[arg(default_value = "state")]
         what: String,
+
+        /// Session ID (for session-specific working set)
+        #[arg(long)]
+        session_id: Option<String>,
     },
 
     /// Hook entry points (called by Claude Code hooks)
@@ -83,7 +87,7 @@ fn main() -> ExitCode {
             session_id,
         } => extract::run(transcript, session_id),
         Commands::Compile { intent } => compile::run(intent),
-        Commands::Show { what } => show::run(&what),
+        Commands::Show { what, session_id } => show::run(&what, session_id.as_deref()),
         Commands::Hook { command } => match command {
             HookCommands::Compile { session_id } => compile::run_hook(&session_id),
             HookCommands::Extract => extract::run_hook(),
