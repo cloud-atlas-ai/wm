@@ -107,7 +107,7 @@ fn push_single_candidate(
     candidate_type: &str,
     content: &str,
 ) -> Result<String, String> {
-    let url = format!("{}/api/candidates", api_url);
+    let url = format!("{}/api/candidates", api_url.trim_end_matches('/'));
 
     let request_body = CreateCandidateRequest {
         candidate_type,
