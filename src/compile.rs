@@ -8,9 +8,20 @@ use crate::types::HookResponse;
 use std::process::{Command, Stdio};
 
 /// Run wm compile with optional intent
+/// AIDEV-NOTE: Returns Ok() instead of Err when not initialized. This is intentional:
+/// extract/compile can be triggered automatically by hooks, so they must not spam error
+/// logs in projects without .wm/. User-invoked commands like show/status still return
+/// Err to inform the user. See also: extract::run().
 pub fn run(intent: Option<String>) -> Result<(), String> {
     if !state::is_initialized() {
-        return Err("Not initialized. Run 'wm init' first.".to_string());
+        eprintln!("Not initialized. Run 'wm init' first.");
+        return Ok(());
+    }
+
+    // Check if compile is paused
+    if !state::is_compile_enabled() {
+        println!("Compile is paused. Use 'wm resume compile' to enable.");
+        return Ok(());
     }
 
     let state = std::fs::read_to_string(state::wm_path("state.md")).unwrap_or_default();
@@ -37,6 +48,17 @@ pub fn run(intent: Option<String>) -> Result<(), String> {
 pub fn run_hook(session_id: &str) -> Result<(), String> {
     if !state::is_initialized() {
         // Silent success if not initialized
+        return Ok(());
+    }
+
+    // Check if compile is paused
+    if !state::is_compile_enabled() {
+        state::log("compile", "Paused via config, returning empty");
+        let response = HookResponse {
+            additional_context: None,
+        };
+        let json = serde_json::to_string(&response).map_err(|e| e.to_string())?;
+        println!("{}", json);
         return Ok(());
     }
 
