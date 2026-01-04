@@ -131,11 +131,9 @@ pub fn run(options: DistillOptions) -> Result<(), String> {
     );
     println!("Raw extractions written to .wm/{}/raw_extractions.md", DISTILL_DIR);
 
-    // TODO(yz-u164): Implement Pass 2 - categorize into guardrails vs metis
-    // For accumulated knowledge:
-    //   1. Classify each item
-    //   2. Write to .wm/distill/guardrails.md and .wm/distill/metis.md
-    println!("\n[Pass 2 not yet implemented - categorization pending]");
+    // Pass 2: Categorize into guardrails vs metis
+    println!("\n=== Pass 2: Categorizing into guardrails vs metis ===\n");
+    run_pass2(&raw_content)?;
 
     // TODO(yz-pltc): Implement OH integration
     // If --push-to-oh:
@@ -149,6 +147,176 @@ pub fn run(options: DistillOptions) -> Result<(), String> {
             options.context_id.as_deref().unwrap_or("(none)")
         );
     }
+
+    Ok(())
+}
+
+/// Result of Pass 2 categorization
+struct CategorizationResult {
+    guardrails: Vec<String>,
+    metis: Vec<String>,
+}
+
+/// Run Pass 2: categorize raw extractions into guardrails vs metis
+fn run_pass2(raw_extractions: &str) -> Result<(), String> {
+    let result = call_categorization_llm(raw_extractions)?;
+
+    let guardrail_count = result.guardrails.len();
+    let metis_count = result.metis.len();
+
+    // Write guardrails
+    if !result.guardrails.is_empty() {
+        let content = format_categorized_output("Guardrails", &result.guardrails);
+        write_categorized_file("guardrails.md", &content)?;
+        println!("  ✓ {} guardrail(s) written to .wm/{}/guardrails.md", guardrail_count, DISTILL_DIR);
+    } else {
+        println!("  ○ No guardrails identified");
+    }
+
+    // Write metis
+    if !result.metis.is_empty() {
+        let content = format_categorized_output("Metis", &result.metis);
+        write_categorized_file("metis.md", &content)?;
+        println!("  ✓ {} metis item(s) written to .wm/{}/metis.md", metis_count, DISTILL_DIR);
+    } else {
+        println!("  ○ No metis items identified");
+    }
+
+    println!(
+        "\nPass 2 complete: {} guardrail(s), {} metis item(s)",
+        guardrail_count, metis_count
+    );
+
+    Ok(())
+}
+
+/// Call LLM to categorize extractions into guardrails vs metis
+fn call_categorization_llm(raw_extractions: &str) -> Result<CategorizationResult, String> {
+    // AIDEV-NOTE: Categorization distinguishes between:
+    // - Guardrails: Hard constraints that must NEVER be violated (binary enforcement)
+    // - Metis: Wisdom/patterns about HOW to work effectively (contextual guidance)
+    // The key difference: guardrails are rules, metis is advice.
+    let system_prompt = r#"You are categorizing tacit knowledge into two types:
+
+**GUARDRAILS** - Hard constraints that must NEVER be violated:
+- Prohibitions: "Never do X", "Always do Y before Z"
+- Safety rules: Things that could cause data loss, security issues, or broken builds
+- Project-specific requirements that are non-negotiable
+- Examples: "Never commit .env files", "Always run tests before pushing", "Never delete migrations"
+
+**METIS** - Wisdom and patterns about HOW to work effectively:
+- Preferences: How the user likes things done
+- Patterns: Approaches that work well in this codebase
+- Context: Understanding about why things are the way they are
+- Soft guidance that may have exceptions
+- Examples: "Prefer functional approaches", "User likes concise commit messages", "Check existing patterns first"
+
+OUTPUT FORMAT:
+
+GUARDRAILS:
+- Item 1
+- Item 2
+...
+
+METIS:
+- Item 1
+- Item 2
+...
+
+Rules:
+1. Each item should be self-contained and actionable
+2. Preserve the original meaning but clarify if needed
+3. If an item could be both, choose based on severity (safety-critical = guardrail)
+4. It's OK to have empty sections if nothing fits that category
+5. Combine duplicates, but don't lose distinct nuances"#;
+
+    let message = format!(
+        "Categorize these extracted insights:\n\n{}\n\nOUTPUT:",
+        raw_extractions
+    );
+
+    let result_str = llm::call_claude(system_prompt, &message)?;
+    parse_categorization_response(&result_str)
+}
+
+/// Parse the categorization response into guardrails and metis
+fn parse_categorization_response(response: &str) -> Result<CategorizationResult, String> {
+    let mut guardrails = Vec::new();
+    let mut metis = Vec::new();
+    let mut current_section: Option<&str> = None;
+
+    for line in response.lines() {
+        let trimmed = line.trim();
+
+        // Check for section headers
+        if trimmed.starts_with("GUARDRAILS:") || trimmed == "GUARDRAILS" {
+            current_section = Some("guardrails");
+            continue;
+        }
+        if trimmed.starts_with("METIS:") || trimmed == "METIS" {
+            current_section = Some("metis");
+            continue;
+        }
+
+        // Parse bullet points
+        if let Some(section) = current_section {
+            if let Some(item) = parse_bullet_item(trimmed) {
+                match section {
+                    "guardrails" => guardrails.push(item),
+                    "metis" => metis.push(item),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    Ok(CategorizationResult { guardrails, metis })
+}
+
+/// Parse a bullet point item, returning None for empty or non-bullet lines
+fn parse_bullet_item(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+
+    // Skip empty lines and section markers
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    // Remove bullet prefixes
+    let content = trimmed
+        .trim_start_matches('-')
+        .trim_start_matches('*')
+        .trim_start_matches('•')
+        .trim();
+
+    // Skip if just whitespace after removing bullet
+    if content.is_empty() {
+        return None;
+    }
+
+    Some(content.to_string())
+}
+
+/// Format categorized items for output file
+fn format_categorized_output(title: &str, items: &[String]) -> String {
+    let mut output = format!("# {}\n\n", title);
+
+    for item in items {
+        output.push_str(&format!("- {}\n", item));
+    }
+
+    output
+}
+
+/// Write a categorized output file
+fn write_categorized_file(filename: &str, content: &str) -> Result<(), String> {
+    let distill_dir = state::wm_path(DISTILL_DIR);
+    std::fs::create_dir_all(&distill_dir)
+        .map_err(|e| format!("Failed to create distill directory: {}", e))?;
+
+    let path = distill_dir.join(filename);
+    std::fs::write(&path, content)
+        .map_err(|e| format!("Failed to write {}: {}", filename, e))?;
 
     Ok(())
 }
@@ -468,4 +636,99 @@ fn discover_sessions_by_project_filter(filter: &str) -> Result<Vec<SessionInfo>,
     all_sessions.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
 
     Ok(all_sessions)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_categorization_response_basic() {
+        let response = r#"GUARDRAILS:
+- Never commit .env files
+- Always run tests before pushing
+
+METIS:
+- Prefer functional approaches when possible
+- Check existing patterns before adding new code"#;
+
+        let result = parse_categorization_response(response).unwrap();
+
+        assert_eq!(result.guardrails.len(), 2);
+        assert_eq!(result.guardrails[0], "Never commit .env files");
+        assert_eq!(result.guardrails[1], "Always run tests before pushing");
+
+        assert_eq!(result.metis.len(), 2);
+        assert_eq!(result.metis[0], "Prefer functional approaches when possible");
+        assert_eq!(
+            result.metis[1],
+            "Check existing patterns before adding new code"
+        );
+    }
+
+    #[test]
+    fn test_parse_categorization_response_with_colons() {
+        let response = r#"GUARDRAILS:
+- Never do this: commit secrets
+- Always do that: run linter
+
+METIS:
+- User preference: concise messages"#;
+
+        let result = parse_categorization_response(response).unwrap();
+
+        assert_eq!(result.guardrails.len(), 2);
+        assert_eq!(result.guardrails[0], "Never do this: commit secrets");
+
+        assert_eq!(result.metis.len(), 1);
+        assert_eq!(result.metis[0], "User preference: concise messages");
+    }
+
+    #[test]
+    fn test_parse_categorization_response_empty_sections() {
+        let response = r#"GUARDRAILS:
+
+METIS:
+- Only metis here"#;
+
+        let result = parse_categorization_response(response).unwrap();
+
+        assert_eq!(result.guardrails.len(), 0);
+        assert_eq!(result.metis.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_categorization_response_asterisk_bullets() {
+        let response = r#"GUARDRAILS:
+* Item with asterisk
+
+METIS:
+* Another asterisk item"#;
+
+        let result = parse_categorization_response(response).unwrap();
+
+        assert_eq!(result.guardrails.len(), 1);
+        assert_eq!(result.guardrails[0], "Item with asterisk");
+    }
+
+    #[test]
+    fn test_parse_bullet_item() {
+        assert_eq!(parse_bullet_item("- item"), Some("item".to_string()));
+        assert_eq!(parse_bullet_item("* item"), Some("item".to_string()));
+        assert_eq!(parse_bullet_item("• item"), Some("item".to_string()));
+        assert_eq!(parse_bullet_item("  - indented"), Some("indented".to_string()));
+        assert_eq!(parse_bullet_item(""), None);
+        assert_eq!(parse_bullet_item("  "), None);
+        assert_eq!(parse_bullet_item("-"), None);
+    }
+
+    #[test]
+    fn test_format_categorized_output() {
+        let items = vec!["First item".to_string(), "Second item".to_string()];
+        let output = format_categorized_output("Test", &items);
+
+        assert!(output.starts_with("# Test\n\n"));
+        assert!(output.contains("- First item\n"));
+        assert!(output.contains("- Second item\n"));
+    }
 }
