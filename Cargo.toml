@@ -1,6 +1,6 @@
 [package]
 name = "working-memory"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2024"
 description = "Working memory for AI coding assistants"
 license = "LicenseRef-Proprietary"
