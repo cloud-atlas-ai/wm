@@ -206,7 +206,18 @@ Run periodically when state feels bloated, not after every session.
 
 ## Dive Sessions
 
-A **dive** is a focused work session with explicit grounding. The metaphor: you don't just splash around—you *dive* into work with a clear purpose, knowing what you're after and what constraints apply.
+A **dive** is a focused work session with explicit grounding. The metaphor comes from scuba diving: you prep before you dive, you don't just splash in. You check your gear, review your plan, know your limits. The 30 seconds of setup prevents 30 minutes of drift.
+
+**No dive is too small for a dive prep.** Even a quick bug fix benefits from explicit intent. The act of stating what you're doing grounds you.
+
+### Terminology
+
+| Term | What It Is |
+|------|------------|
+| **dive** | A focused work session with explicit grounding |
+| **dive-prep** | The action of preparing a dive (`/dive-prep`, `wm dive-prep`) |
+| **dive pack** | A reusable context bundle stored in Open Horizons |
+| **dive context** | The manifest file for the current session (`.wm/dive_context.md`) |
 
 **Without a dive**, AI sessions often drift:
 - You start coding without clarity on the goal
