@@ -332,6 +332,31 @@ pub fn clear() -> Result<(), String> {
 }
 
 // ============================================================================
+// AI-assisted prep (stub for CLI invocation)
+// ============================================================================
+
+/// Prepare dive context - requires AI agent to gather and synthesize context.
+/// This stub provides instructions when invoked directly from CLI.
+pub fn prep(intent: Option<&str>) -> Result<(), String> {
+    println!("Dive prep requires an AI agent to gather and synthesize context.");
+    println!();
+    println!("In Claude Code, use: /wm:dive-prep");
+    if let Some(i) = intent {
+        println!("  with intent: {}", i);
+    }
+    println!();
+    println!("The agent will:");
+    println!("  1. Detect OH connection and suggest linking endeavors");
+    println!("  2. Gather local context (CLAUDE.md, git state, etc.)");
+    println!("  3. Fetch OH context if available");
+    println!("  4. Write .wm/dive_context.md with curated grounding");
+    println!();
+    println!("Alternative: Create a dive manually with 'wm dive new <name>'");
+
+    Ok(())
+}
+
+// ============================================================================
 // Helpers
 // ============================================================================
 

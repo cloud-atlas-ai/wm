@@ -115,6 +115,13 @@ enum Commands {
         #[command(subcommand)]
         command: HookCommands,
     },
+
+    /// Prepare dive context (alias for 'wm dive prep')
+    #[command(name = "dive-prep")]
+    DivePrep {
+        /// Intent or context for the dive
+        intent: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -167,6 +174,12 @@ enum DiveCommands {
 
     /// Clear the current dive context
     Clear,
+
+    /// Prepare dive context (requires AI agent - use /wm:dive-prep in Claude Code)
+    Prep {
+        /// Intent or context for the dive
+        intent: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -224,6 +237,7 @@ fn main() -> ExitCode {
             DiveCommands::Show { name } => dive::show(name.as_deref()),
             DiveCommands::Load { pack_id, name } => dive::load(&pack_id, name.as_deref()),
             DiveCommands::Clear => dive::clear(),
+            DiveCommands::Prep { intent } => dive::prep(intent.as_deref()),
         },
         Commands::Pause { operation } => run_pause(operation),
         Commands::Resume { operation } => run_resume(operation),
@@ -232,6 +246,7 @@ fn main() -> ExitCode {
             HookCommands::Compile { session_id } => compile::run_hook(&session_id),
             HookCommands::Extract => extract::run_hook(),
         },
+        Commands::DivePrep { intent } => dive::prep(intent.as_deref()),
     };
 
     match result {
