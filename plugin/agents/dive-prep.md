@@ -96,7 +96,44 @@ Always gather from current directory:
 3. **Git state** - Current branch, uncommitted changes, recent commits
 4. **Directory structure** - Top-level layout for orientation
 
-### Step 3: Gather Optional Sources
+### Step 3: Identify Related Implementations
+
+**Purpose:** Surface existing code that could be leveraged or adapted, and identify existing duplication worth cleaning up.
+
+Based on the user's intent, search the codebase for:
+
+1. **Directly related code** - Files, functions, and data structures that will be touched or extended
+2. **Indirectly related code** - Similar patterns, analogous implementations, and related schemas that could be reused
+3. **Existing duplication** - Code that already does the same thing in multiple places (cleanup opportunity)
+
+**Search strategy:**
+- Grep for keywords from the intent/issue description
+- Find similar-named functions, structs, and modules
+- Look for existing implementations of related concepts
+- Check for utility functions that might already solve part of the problem
+- Identify data structures that could be extended vs duplicated
+- Search for parallel implementations (e.g., `foo_claude()` and `foo_codex()` doing the same thing)
+- Look for structurally similar code in different modules
+
+**Output for each finding:**
+
+```
+Reusable: src/transcript/reader.rs
+  - read_transcript() - JSONL parsing with error handling
+  - Could adapt for: new file format parsing
+
+Duplication: src/session.rs + src/codex/session.rs
+  - system_time_to_datetime() - identical helper in both files
+  - Opportunity: extract to shared module
+```
+
+**Key questions to answer:**
+- "What existing code does the same or similar thing?" (reuse opportunity)
+- "What code is already duplicated that we'd be adding to?" (cleanup opportunity)
+
+This step helps catch "why have one function when you can have three" situations before they happen, and surfaces existing duplication worth consolidating.
+
+### Step 4: Gather Optional Sources
 
 **If OH connected and --oh provided:**
 ```
@@ -115,7 +152,7 @@ Returns: mission context, guardrails, metis, related endeavors
 - Read specified files
 - Summarize key sections for context
 
-### Step 4: Present for Curation
+### Step 5: Present for Curation
 
 Show gathered context, let user confirm in <30s:
 
@@ -143,7 +180,7 @@ Workflow: fix-workflow
 [Accept] [Edit] [Cancel]
 ```
 
-### Step 5: Build Workflow
+### Step 6: Build Workflow
 
 Based on intent, include appropriate workflow:
 
@@ -196,7 +233,7 @@ Based on intent, include appropriate workflow:
 6. Deploy when approved
 ```
 
-### Step 6: Write Session Manifest
+### Step 7: Write Session Manifest
 
 Write `.wm/dive_context.md` with curated grounding:
 
@@ -220,6 +257,16 @@ Write `.wm/dive_context.md` with curated grounding:
 ### Relevant Knowledge
 [From OH metis, or key patterns noted]
 
+### Related Implementations
+[Existing code that could be leveraged or adapted - from Step 3]
+
+**Reusable:**
+- `path/to/file.rs` - description of what it does and how it relates
+- Pattern: [existing pattern that could be reused]
+
+**Existing Duplication** (cleanup opportunity):
+- `file_a.rs` + `file_b.rs` - [what's duplicated and why it matters]
+
 ## Workflow
 [Selected workflow steps]
 
@@ -229,7 +276,7 @@ Write `.wm/dive_context.md` with curated grounding:
 - OH: endeavor bd9d6ace (if connected)
 ```
 
-### Step 7: Confirm
+### Step 8: Confirm
 
 ```
 ✓ Dive session prepared
