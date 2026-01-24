@@ -8,7 +8,8 @@
 
 use chrono::{DateTime, Utc};
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+
+use crate::types::system_time_to_datetime;
 
 /// Information about a discovered session transcript
 #[derive(Debug, Clone)]
@@ -109,12 +110,6 @@ pub fn discover_sessions_in_dir(project_dir: &Path) -> Result<Vec<SessionInfo>, 
     sessions.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
 
     Ok(sessions)
-}
-
-/// Convert SystemTime to DateTime<Utc>
-fn system_time_to_datetime(st: SystemTime) -> Option<DateTime<Utc>> {
-    let duration = st.duration_since(std::time::UNIX_EPOCH).ok()?;
-    DateTime::from_timestamp(duration.as_secs() as i64, duration.subsec_nanos())
 }
 
 /// Get the current project path
