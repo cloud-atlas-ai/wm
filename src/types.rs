@@ -1,6 +1,16 @@
 //! Core data types for WM
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::time::SystemTime;
+
+/// Convert SystemTime to DateTime<Utc>
+///
+/// Shared utility used by session discovery in both Claude Code and Codex modules.
+pub fn system_time_to_datetime(st: SystemTime) -> Option<DateTime<Utc>> {
+    let duration = st.duration_since(std::time::UNIX_EPOCH).ok()?;
+    DateTime::from_timestamp(duration.as_secs() as i64, duration.subsec_nanos())
+}
 
 /// Hook-specific output for UserPromptSubmit hooks
 #[derive(Debug, Clone, Serialize, Deserialize)]

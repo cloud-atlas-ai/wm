@@ -8,9 +8,9 @@ use chrono::{DateTime, Utc};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
 use crate::codex::types::CodexEntry;
+use crate::types::system_time_to_datetime;
 
 /// Information about a discovered Codex session
 #[derive(Debug, Clone)]
@@ -173,12 +173,6 @@ fn read_dir_sorted(path: &Path) -> Result<Vec<std::fs::DirEntry>, String> {
 
     entries.sort_by_key(|e| e.path());
     Ok(entries)
-}
-
-/// Convert SystemTime to DateTime<Utc>
-fn system_time_to_datetime(st: SystemTime) -> Option<DateTime<Utc>> {
-    let duration = st.duration_since(std::time::UNIX_EPOCH).ok()?;
-    DateTime::from_timestamp(duration.as_secs() as i64, duration.subsec_nanos())
 }
 
 #[cfg(test)]
